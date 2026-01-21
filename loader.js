@@ -1,31 +1,89 @@
-// loader.js
-// Initializes global objects for the AI RPG engine
+// ----------------------------
+// Helper to dynamically load a script
+// ----------------------------
+async function loadScript(src){
+  return new Promise((resolve,reject)=>{
+    let s = document.createElement("script");
+    s.type = "text/javascript";
+    s.src = src;
+    s.onload = ()=>resolve(src);
+    s.onerror = ()=>reject(new Error("Failed to load " + src));
+    document.body.appendChild(s);
+  });
+}
 
-// Ensure aiRPG namespace exists
+// ----------------------------
+// Initialize AI RPG Namespace
+// ----------------------------
 window.aiRPG = window.aiRPG || {};
+const aiRPG = window.aiRPG;
 
-// Ensure the pfpEngine object exists (will be populated by pfp_engine.js)
-window.aiRPG.pfpEngine = window.aiRPG.pfpEngine || {};
+// ----------------------------
+// Load core engine scripts
+// ----------------------------
+(async function(){
+  const baseURL = "https://cdn.jsdelivr.net/gh/greenralph1947-lab/perchance-ai-engine@main";
 
-// Ensure oc (character context) exists
-window.oc = window.oc || {};
-oc.character = oc.character || {};
-oc.character.customData = oc.character.customData || {};
-oc.character.avatar = oc.character.avatar || { url: "" };
+  const coreScripts = [
+    `${baseURL}/core/config.js`,
+    `${baseURL}/core/state.js`,
+    `${baseURL}/core/pfp_engine.js`,
+    `${baseURL}/core/npc_engine.js`,
+    `${baseURL}/core/skill_engine.js`,
+    `${baseURL}/core/message_cycle.js`,
+    `${baseURL}/core/gm_adapter.js`,
+    `${baseURL}/utils/helpers.js`,
+    `${baseURL}/utils/avatar_utils.js`,
+    `${baseURL}/utils/data_validation.js`
+  ];
 
-// Ensure structures for avatars are initialized
-oc.character.customData.generatedAvatars = oc.character.customData.generatedAvatars || {};
-oc.character.customData.pendingAvatarOptions = oc.character.customData.pendingAvatarOptions || {};
-oc.character.customData.avatars = oc.character.customData.avatars || {};
+  for(const src of coreScripts){
+    try { await loadScript(src); }
+    catch(e){ console.error("Failed to load:", src, e); }
+  }
 
-// Minimal thread simulation (used by system messages)
-oc.thread = oc.thread || {};
-oc.thread.messages = oc.thread.messages || [];
+  console.log("Core AI RPG Engine loaded!", aiRPG);
 
-// Helper to push system messages (optional, makes pfp_engine.js compatible)
-oc.thread.pushSystemMessage = function(content) {
-  oc.thread.messages.push({ author: "system", content, expectsReply: false, customData: { ignoreForAI: true } });
-};
+  // ----------------------------
+  // Load command modules
+  // ----------------------------
+  const commandScripts = [
+    `${baseURL}/commands/commands_pfp.js`,
+    `${baseURL}/commands/commands_npc.js`,
+    `${baseURL}/commands/commands_skills.js`,
+    `${baseURL}/commands/commands_check.js`
+  ];
 
-console.log("loader.js initialized: aiRPG, oc, and avatar structures ready.");
+  const commandHandlers = [];
 
+  for(const src of commandScripts){
+    try {
+      const module = await import(src);
+      if(module.register) {
+        const handler = module.register(aiRPG);
+        if(handler) commandHandlers.push(handler);
+      }
+      console.log("Loaded command module:", src);
+    } catch(e){
+      console.error("Failed to load command module:", src, e);
+    }
+  }
+
+  // ----------------------------
+  // Listen for player messages
+  // ----------------------------
+  oc.thread.on("MessageAdded", function(msg){
+    if(msg.author !== "player") return;
+
+    const content = msg.content.trim();
+
+    // Run each command handler in order
+    for(const handler of commandHandlers){
+      if(handler(content)) return; // message handled
+    }
+
+    // Normal player message processing happens here
+  });
+
+  console.log("AI RPG Engine fully initialized!");
+})();
